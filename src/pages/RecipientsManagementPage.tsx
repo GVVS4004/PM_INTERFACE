@@ -195,10 +195,6 @@ const RecipientsManagementPage = () => {
     }
   };
 
-  const getGroupById = (groupId: number | null) => {
-    return groups.find(g => g.id === groupId);
-  };
-
   const getRecipientsByGroup = (groupId: number | null) => {
     return recipients.filter(r => r.groupId === groupId);
   };
@@ -240,7 +236,7 @@ const RecipientsManagementPage = () => {
         </Stack>
 
         <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Card>
               <CardContent>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
@@ -283,7 +279,7 @@ const RecipientsManagementPage = () => {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
               <PersonIcon color="primary" />
               <Typography variant="h6">All Recipients ({recipients.length})</Typography>
@@ -296,7 +292,7 @@ const RecipientsManagementPage = () => {
                 </Typography>
                 <Grid container spacing={2}>
                   {getRecipientsByGroup(null).map(recipient => (
-                    <Grid item xs={12} sm={6} key={recipient.id}>
+                    <Grid size={{ xs: 12, sm: 6 }} key={recipient.id}>
                       <Card>
                         <CardContent>
                           <Stack direction="row" justifyContent="space-between" alignItems="start">
@@ -337,7 +333,7 @@ const RecipientsManagementPage = () => {
                   </Typography>
                   <Grid container spacing={2}>
                     {groupRecipients.map(recipient => (
-                      <Grid item xs={12} sm={6} key={recipient.id}>
+                      <Grid size={{ xs: 12, sm: 6 }} key={recipient.id}>
                         <Card sx={{ borderLeft: `4px solid ${group.color}` }}>
                           <CardContent>
                             <Stack direction="row" justifyContent="space-between" alignItems="start">

@@ -88,7 +88,7 @@ const CreateNotificationPage = () => {
 
     setSaving(true);
     try {
-      const response = await axios.post(
+      await axios.post(
         `${API_URL}/notifications/create`,
         {
           title,
@@ -119,7 +119,7 @@ const CreateNotificationPage = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post(
+      await axios.post(
         `${API_URL}/notifications/create`,
         {
           title,
