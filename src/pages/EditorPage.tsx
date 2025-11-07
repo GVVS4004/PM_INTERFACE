@@ -11,16 +11,11 @@ import {
   Stack,
   Chip,
   Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Checkbox,
-  Divider,
   Alert,
   CircularProgress,
   IconButton,
   Paper,
+  Divider,
 } from '@mui/material';
 import { NotificationSourceBadge } from '../components/Common/NotificationSourceBadge';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -29,8 +24,41 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import SendIcon from '@mui/icons-material/Send';
 import SaveIcon from '@mui/icons-material/Save';
 import GroupIcon from '@mui/icons-material/Group';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { AIAssistant } from '../components/AI/AIAssistant';
+import { GroupSelector } from '../components/Notifications/GroupSelector';
+import { ApplicationSelector } from '../components/Notifications/ApplicationSelector';
+import { SendPreview } from '../components/Notifications/SendPreview';
+import { TrackingStatsPanel } from '../components/Notifications/TrackingStatsPanel';
 import { API_URL } from '../config/api';
+
+interface User {
+  userId: number;
+  name: string;
+  email: string;
+}
+
+interface Group {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  users?: User[];
+  userCount: number;
+  applications?: { id: number; name: string }[];
+  applicationIds?: number[];
+}
+
+interface Application {
+  id: number;
+  name: string;
+  baseUrl: string;
+  notificationEndpoint: string;
+  apiKey: string;
+  status: string;
+  activeUsers: number;
+  description: string;
+}
 
 interface Notification {
   id: number;
@@ -44,17 +72,21 @@ interface Notification {
   createdBy?: string;
   action?: string;
   actionDate?: string;
-  sentTo?: Recipient[];
+  sentTo?: User[];
   sentAt?: string;
+  sentVia?: {
+    groups: { id: number; name: string }[];
+    applications: { id: number; name: string }[];
+  };
+  tracking?: {
+    totalSent: number;
+    opened: number;
+    openRate: number;
+    openedUsers: User[];
+    lastOpenedAt: string | null;
+  };
   createdAt: string;
   updatedAt: string;
-}
-
-interface Recipient {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
 }
 
 const EditorPage = () => {
@@ -65,24 +97,40 @@ const EditorPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [selectedRecipients, setSelectedRecipients] = useState<number[]>([]);
-  const [showRecipients, setShowRecipients] = useState(false);
-  const [sendingRelease, setSendingRelease] = useState(false);
+  // Groups and Applications
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
+  const [selectedApplicationIds, setSelectedApplicationIds] = useState<number[]>([]);
+
+  const [showBulkSend, setShowBulkSend] = useState(false);
+  const [sendingBulk, setSendingBulk] = useState(false);
 
   useEffect(() => {
     loadNotification();
-    loadRecipients();
+    loadGroups();
+    loadApplications();
   }, [id]);
 
-  const loadRecipients = async () => {
+  const loadGroups = async () => {
     try {
-      const response = await axios.get(`${API_URL}/recipients`, {
+      const response = await axios.get(`${API_URL}/groups`, {
         withCredentials: true
       });
-      setRecipients(response.data);
+      setGroups(response.data);
     } catch (error: any) {
-      console.error('Failed to load recipients:', error);
+      console.error('Failed to load groups:', error);
+    }
+  };
+
+  const loadApplications = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/applications`, {
+        withCredentials: true
+      });
+      setApplications(response.data);
+    } catch (error: any) {
+      console.error('Failed to load applications:', error);
     }
   };
 
@@ -134,7 +182,7 @@ const EditorPage = () => {
       );
       setNotification(response.data);
       alert('Release notes accepted!');
-      setShowRecipients(true);
+      setShowBulkSend(true);
     } catch (error) {
       console.error('Failed to accept:', error);
       alert('Failed to accept release');
@@ -159,41 +207,86 @@ const EditorPage = () => {
     }
   };
 
-  const handleSendToRecipients = async () => {
-    if (selectedRecipients.length === 0) {
-      alert('Please select at least one recipient');
+  const handleBulkSend = async () => {
+    if (selectedGroupIds.length === 0) {
+      alert('Please select at least one group');
       return;
     }
 
-    setSendingRelease(true);
+    if (selectedApplicationIds.length === 0) {
+      alert('Please select at least one application');
+      return;
+    }
+
+    setSendingBulk(true);
     try {
       const response = await axios.post(
-        `${API_URL}/notifications/${id}/send`,
-        { recipientIds: selectedRecipients },
+        `${API_URL}/notifications/${id}/send-bulk`,
+        {
+          groupIds: selectedGroupIds,
+          applicationIds: selectedApplicationIds
+        },
         { withCredentials: true }
       );
 
-      setNotification(prev => prev ? { ...prev, status: 'sent', sentTo: response.data.sentRelease.recipients } : null);
-      alert(response.data.message);
-      setShowRecipients(false);
+      setNotification(prev => prev ? {
+        ...prev,
+        status: 'sent',
+        sentTo: response.data.sentRelease.users,
+        sentVia: {
+          groups: response.data.summary.groups,
+          applications: response.data.summary.applications
+        }
+      } : null);
+
+      alert(`✅ ${response.data.message}\n\n` +
+        `📊 Summary:\n` +
+        `• Total Users: ${response.data.summary.totalUsers}\n` +
+        `• Applications: ${response.data.summary.successfulApplications}/${response.data.summary.totalApplications} successful\n` +
+        `• Groups: ${response.data.summary.groups.map((g: any) => g.name).join(', ')}`
+      );
+
+      setShowBulkSend(false);
+      setSelectedGroupIds([]);
+      setSelectedApplicationIds([]);
     } catch (error: any) {
-      console.error('Failed to send release:', error);
-      alert(error.response?.data?.error || 'Failed to send release notes');
+      console.error('Failed to send bulk notification:', error);
+      alert(error.response?.data?.error || 'Failed to send bulk notification');
     } finally {
-      setSendingRelease(false);
+      setSendingBulk(false);
     }
   };
 
-  const toggleRecipient = (recipientId: number) => {
-    setSelectedRecipients(prev =>
-      prev.includes(recipientId)
-        ? prev.filter(id => id !== recipientId)
-        : [...prev, recipientId]
+  const toggleGroup = (groupId: number) => {
+    setSelectedGroupIds(prev =>
+      prev.includes(groupId)
+        ? prev.filter(id => id !== groupId)
+        : [...prev, groupId]
+    );
+  };
+
+  const toggleApplication = (appId: number) => {
+    setSelectedApplicationIds(prev =>
+      prev.includes(appId)
+        ? prev.filter(id => id !== appId)
+        : [...prev, appId]
     );
   };
 
   const handleApplyAISuggestion = (suggestion: string) => {
     setContent(suggestion);
+  };
+
+  // Calculate total users (deduplicated)
+  const getTotalUsers = () => {
+    const selectedGroups = groups.filter(g => selectedGroupIds.includes(g.id));
+    const usersMap = new Map();
+    selectedGroups.forEach(group => {
+      group.users?.forEach(user => {
+        usersMap.set(user.userId, user);
+      });
+    });
+    return usersMap.size;
   };
 
   if (loading) {
@@ -217,6 +310,10 @@ const EditorPage = () => {
   const isSent = notification.status === 'sent';
   const isPMCreated = notification.source === 'pm_created';
 
+  const selectedGroups = groups.filter(g => selectedGroupIds.includes(g.id));
+  const selectedApps = applications.filter(a => selectedApplicationIds.includes(a.id));
+  const totalUsers = getTotalUsers();
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'grey.50' }}>
       <Box sx={{ bgcolor: 'white', borderBottom: 1, borderColor: 'divider', px: 3, py: 2 }}>
@@ -234,7 +331,15 @@ const EditorPage = () => {
                 />
                 {isAccepted && <Chip icon={<CheckCircleIcon />} label="Accepted" color="success" size="small" />}
                 {isRejected && <Chip icon={<CancelIcon />} label="Rejected" color="error" size="small" />}
-                {isSent && <Chip icon={<SendIcon />} label={`Sent to ${notification.sentTo?.length} recipients`} color="info" size="small" />}
+                {isSent && <Chip icon={<SendIcon />} label={`Sent to ${notification.sentTo?.length} users`} color="info" size="small" />}
+                {isSent && notification.tracking && (
+                  <Chip
+                    icon={<VisibilityIcon />}
+                    label={`${notification.tracking.opened}/${notification.tracking.totalSent} opened (${notification.tracking.openRate}%)`}
+                    color={notification.tracking.openRate > 50 ? 'success' : notification.tracking.openRate > 0 ? 'warning' : 'default'}
+                    size="small"
+                  />
+                )}
               </Stack>
             </Box>
           </Stack>
@@ -253,11 +358,11 @@ const EditorPage = () => {
             {(isPMCreated || isAccepted || isSent) && (
               <Button
                 variant="contained"
-                color={showRecipients ? 'inherit' : 'secondary'}
-                onClick={() => setShowRecipients(!showRecipients)}
+                color={showBulkSend ? 'inherit' : 'secondary'}
+                onClick={() => setShowBulkSend(!showBulkSend)}
                 startIcon={<GroupIcon />}
               >
-                {showRecipients ? 'Hide Recipients' : 'Send to Recipients'}
+                {showBulkSend ? 'Hide Send Panel' : 'Send to Groups & Apps'}
               </Button>
             )}
             <Button
@@ -273,10 +378,31 @@ const EditorPage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', p: 3, gap: 3, height: 'calc(100vh - 120px)' }}>
-        <Box sx={{ flex: showRecipients ? '0 0 50%' : 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ flex: showBulkSend ? '0 0 50%' : 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Alert severity="info" icon={false}>
             <strong>Jira Issues:</strong> {notification.jiraReleaseNotes || 'N/A'}
           </Alert>
+
+          {isSent && notification.sentVia && (
+            <>
+              <Alert severity="success">
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                  ✅ Already Sent
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Groups:</strong> {notification.sentVia.groups.map(g => g.name).join(', ')}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Applications:</strong> {notification.sentVia.applications.map(a => a.name).join(', ')}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Total Users:</strong> {notification.sentTo?.length}
+                </Typography>
+              </Alert>
+
+              <TrackingStatsPanel notificationId={notification.id} />
+            </>
+          )}
 
           <Card sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -302,104 +428,68 @@ const EditorPage = () => {
 
         <Drawer
           anchor="right"
-          open={showRecipients}
-          onClose={() => setShowRecipients(false)}
+          open={showBulkSend}
+          onClose={() => setShowBulkSend(false)}
           variant="persistent"
           sx={{
-            width: 400,
+            width: 450,
             flexShrink: 0,
             '& .MuiDrawer-paper': {
-              width: 400,
+              width: 450,
               position: 'relative',
               height: '100%',
             },
           }}
         >
-          <Box sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Typography variant="h6" gutterBottom>Select Recipients</Typography>
+          <Box sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              Send to Groups & Applications
+            </Typography>
 
-            {isSent && notification.sentTo && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                <strong>Already sent to:</strong>
-                <Box component="ul" sx={{ mt: 1, mb: 0 }}>
-                  {notification.sentTo.map(r => (
-                    <li key={r.id}>{r.name} ({r.email})</li>
-                  ))}
-                </Box>
-              </Alert>
-            )}
+            <Stack spacing={3} sx={{ flex: 1, overflow: 'auto' }}>
+              <GroupSelector
+                groups={groups}
+                selectedGroupIds={selectedGroupIds}
+                onToggleGroup={toggleGroup}
+                onSelectAll={() => setSelectedGroupIds(groups.map(g => g.id))}
+                onClearAll={() => setSelectedGroupIds([])}
+              />
 
-            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                fullWidth
-                onClick={() => setSelectedRecipients(recipients.map(r => r.id))}
-              >
-                Select All
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                fullWidth
-                onClick={() => setSelectedRecipients([])}
-              >
-                Clear All
-              </Button>
+              <ApplicationSelector
+                applications={applications}
+                selectedApplicationIds={selectedApplicationIds}
+                onToggleApplication={toggleApplication}
+                onSelectAll={() => setSelectedApplicationIds(applications.map(a => a.id))}
+                onClearAll={() => setSelectedApplicationIds([])}
+              />
+
+              <SendPreview
+                selectedGroups={selectedGroups}
+                selectedApplications={selectedApps}
+                totalUsers={totalUsers}
+              />
             </Stack>
 
-            <List sx={{ flex: 1, overflow: 'auto', bgcolor: 'grey.50', borderRadius: 1 }}>
-              {recipients.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: 'center' }}>
-                  <Typography color="text.secondary">No recipients available</Typography>
-                </Box>
-              ) : (
-                recipients.map((recipient) => (
-                  <ListItem key={recipient.id} disablePadding>
-                    <ListItemButton
-                      onClick={() => toggleRecipient(recipient.id)}
-                      selected={selectedRecipients.includes(recipient.id)}
-                    >
-                      <Checkbox
-                        checked={selectedRecipients.includes(recipient.id)}
-                        edge="start"
-                      />
-                      <ListItemText
-                        primary={recipient.name}
-                        secondary={
-                          <>
-                            {recipient.email}
-                            <br />
-                            <Typography variant="caption" color="text.disabled">
-                              {recipient.role}
-                            </Typography>
-                          </>
-                        }
-                      />
-                    </ListItemButton>
-                  </ListItem>
-                ))
-              )}
-            </List>
-
             <Divider sx={{ my: 2 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Selected: {selectedRecipients.length} / {recipients.length}
-            </Typography>
+
             <Button
               variant="contained"
               color="success"
+              size="large"
               fullWidth
-              onClick={handleSendToRecipients}
-              disabled={sendingRelease || selectedRecipients.length === 0}
-              startIcon={sendingRelease ? <CircularProgress size={20} /> : <SendIcon />}
+              onClick={handleBulkSend}
+              disabled={sendingBulk || selectedGroupIds.length === 0 || selectedApplicationIds.length === 0}
+              startIcon={sendingBulk ? <CircularProgress size={20} /> : <SendIcon />}
             >
-              {sendingRelease ? 'Sending...' : `Send to ${selectedRecipients.length} Recipients`}
+              {sendingBulk
+                ? 'Sending...'
+                : `Send to ${totalUsers} Users in ${selectedApps.length} App(s)`
+              }
             </Button>
           </Box>
         </Drawer>
 
-        {!showRecipients && (
+        {!showBulkSend && (
           <Paper sx={{ width: 400, p: 3, display: 'flex', flexDirection: 'column' }} elevation={2}>
             <AIAssistant
               content={content}
